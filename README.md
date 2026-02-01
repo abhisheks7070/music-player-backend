@@ -34,52 +34,45 @@ If you want to test the API on your own computer:
 
 ---
 
-## 🍪 Bypassing Age Restrictions
+## 🍪 Bypassing "Bot" & Age Restrictions
 
-If you see "Age Verification Required," you need to provide your YouTube session cookies.
+If you see "Sign in to confirm you're not a bot" or "Age Verification Required," follow these steps:
 
 ### 1. Extract Cookies from Browser
 1. Install a browser extension like **"EditThisCookie"** or **"Get Cookies.txt"**.
 2. Log in to your YouTube account.
-3. Open the extension and copy the cookies for `youtube.com`.
-4. The backend expects a **raw cookie string** (e.g., `VISITOR_INFO1_LIVE=xxx; SID=yyy; ...`).
+3. Open the extension and copy the cookies for `youtube.com`. 
+   - **Tip**: Copy the whole JSON array if using "Get Cookies.txt". The backend handles both JSON and raw strings.
 
-### 2. Set for Local Development
+### 2. Generate a PoToken (Critical for 2025)
+YouTube now requires a "Proof of Origin" token for serverless requests.
+1. You can often see this token in your browser's Network tab (look for `po=`) while playing a video, or use a tool like `yt-dlp` to extract it.
+2. The token is a short alphanumeric string.
+
+### 3. Set for Local Development
 1. Create a `.env` file in the `music-player-backend` folder.
-2. Add your cookie string:
+2. Add your cookies and token:
    ```env
-   YOUTUBE_COOKIE="your_full_cookie_string_here"
+   YOUTUBE_COOKIE="your_cookies_here"
+   YOUTUBE_PO_TOKEN="your_potoken_here"
    ```
 3. Restart the server with `node server.js`.
 
-### 3. Set for Vercel Production
+### 4. Set for Vercel Production
 1. In the backend folder, run:
    ```bash
    npx vercel env add YOUTUBE_COOKIE
+   npx vercel env add YOUTUBE_PO_TOKEN
    ```
-2. Paste your cookie string when prompted.
-3. Select `Production`, `Preview`, and `Development`.
-4. Redeploy: `npx vercel deploy --prod`.
+2. Paste the values when prompted.
+3. Redeploy: `npx vercel deploy --prod`.
 
 ---
 
 ## ☁️ How to Deploy to Vercel
 
-To host this backend for free so your mobile app can access it from anywhere:
-
-1. **Log in to Vercel**:
-   ```bash
-   npx vercel login
-   ```
-   (Follow the instructions in your browser to authorize).
-
-2. **Deploy to Production**:
-   ```bash
-   npx vercel deploy --prod
-   ```
-
-3. **Get your URL**:
-   Vercel will provide a link like `https://music-player-backend-xxx.vercel.app`. Your API endpoint will be that URL + `/api/convert`.
+1. **Log in to Vercel**: `npx vercel login`
+2. **Deploy**: `npx vercel deploy --prod`
 
 ---
 
@@ -88,12 +81,7 @@ To host this backend for free so your mobile app can access it from anywhere:
 ### Convert YouTube URL to MP3
 **Endpoint**: `POST /api/convert`
 
-**Request Body**:
-```json
-{
-  "url": "https://www.youtube.com/watch?v=VIDEO_ID"
-}
-```
+**Request Body**: `{ "url": "https://www.youtube.com/watch?v=VIDEO_ID" }`
 
 **Successful Response**:
 ```json
@@ -101,39 +89,8 @@ To host this backend for free so your mobile app can access it from anywhere:
   "success": true,
   "data": {
     "title": "Song Title",
-    "author": "Artist Name",
-    "thumbnail": "https://...",
     "audioUrl": "https://...",
     "duration": 240
   }
 }
 ```
-
----
-
-## 🍪 Bypassing Age Restrictions
-
-If you see "Age Verification Required," you need to provide your YouTube session cookies.
-
-### 1. Extract Cookies from Browser
-1. Install a browser extension like **"EditThisCookie"** or **"Get Cookies.txt"**.
-2. Log in to your YouTube account.
-3. Open the extension and copy the cookies for `youtube.com`.
-4. The backend expects a **raw cookie string** (e.g., `VISITOR_INFO1_LIVE=xxx; SID=yyy; ...`).
-
-### 2. Set for Local Development
-1. Create a `.env` file in the `music-player-backend` folder.
-2. Add your cookie string:
-   ```env
-   YOUTUBE_COOKIE="your_full_cookie_string_here"
-   ```
-3. Restart the server with `node server.js`.
-
-### 3. Set for Vercel Production
-1. In the backend folder, run:
-   ```bash
-   npx vercel env add YOUTUBE_COOKIE
-   ```
-2. Paste your cookie string when prompted.
-3. Select `Production`, `Preview`, and `Development`.
-4. Redeploy: `npx vercel deploy --prod`.

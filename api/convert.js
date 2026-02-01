@@ -1,46 +1,35 @@
 const ytdl = require('@distube/ytdl-core');
 
-// Helper to create a ytdl agent with cookies
+// Helper to create a ytdl agent with cookies and PoToken
 const getAgent = () => {
   const cookieString = process.env.YOUTUBE_COOKIE;
-  if (!cookieString) return null;
 
   try {
-    // Try to parse as JSON first (modern format)
-    if (cookieString.trim().startsWith('[') || cookieString.trim().startsWith('{')) {
-      const cookies = JSON.parse(cookieString);
-      return ytdl.createAgent(Array.isArray(cookies) ? cookies : [cookies]);
+    let cookies = [];
+    if (cookieString && (cookieString.trim().startsWith('[') || cookieString.trim().startsWith('{'))) {
+      cookies = JSON.parse(cookieString);
+      if (!Array.isArray(cookies)) cookies = [cookies];
+    } else if (cookieString) {
+      // Parser for raw "name=value; name2=value2"
+      cookies = cookieString.split(';').map(pair => {
+        const [name, ...value] = pair.split('=');
+        if (name && value) {
+          return { name: name.trim(), value: value.join('=').trim(), domain: '.youtube.com' };
+        }
+        return null;
+      }).filter(Boolean);
     }
-  } catch (e) {
-    console.warn('YOUTUBE_COOKIE is not valid JSON, attempting to use as legacy cookie string');
-  }
 
-  // Fallback: If it's a raw string, we try to create an agent with it
-  // Note: createAgent usually expects an array of objects, but some versions 
-  // might handle strings or we may need to manually parse them.
-  try {
-    // Simple parser for "name=value; name2=value2"
-    const cookieArray = cookieString.split(';').map(pair => {
-      const [name, ...value] = pair.split('=');
-      if (name && value) {
-        return { name: name.trim(), value: value.join('=').trim(), domain: '.youtube.com' };
-      }
-      return null;
-    }).filter(Boolean);
-
-    return ytdl.createAgent(cookieArray);
+    // Create agent with cookies if available
+    return cookies.length > 0 ? ytdl.createAgent(cookies) : null;
   } catch (e) {
-    console.error('Failed to create agent from cookie string:', e);
+    console.error('Failed to create agent:', e);
     return null;
   }
 };
 
 /**
  * YouTube to Audio Conversion API
- * 
- * Endpoints:
- * - GET /api/convert?url=<youtube-url>  - Get video info and audio URL
- * - POST /api/convert { url: <youtube-url> } - Same as GET but via POST
  */
 
 // Helper to extract video ID from various YouTube URL formats
@@ -117,14 +106,18 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Get video info with a modern agent and a realistic User-Agent
+    // Get video info with agent and PoToken support
     const agent = getAgent();
+    const poToken = process.env.YOUTUBE_PO_TOKEN;
+
     const options = {
       agent: agent || undefined,
+      playerClients: ['ANDROID', 'IOS', 'WEB_CREATOR'], // Diverse clients help bypass
       requestOptions: {
         headers: {
           'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'accept-language': 'en-US,en;q=0.9',
+          'x-youtube-identity-token': poToken || '', // Try to use PoToken as a header too
         },
       },
     };
@@ -184,7 +177,7 @@ module.exports = async function handler(req, res) {
     if (error.message?.includes('Sign in to confirm')) {
       return res.status(403).json({
         success: false,
-        error: 'This video requires age verification and cannot be processed'
+        error: 'This video requires age verification or is being blocked by bot detection.'
       });
     }
 
