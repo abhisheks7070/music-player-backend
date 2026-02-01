@@ -1,20 +1,17 @@
 /**
- * YouTube to Audio Conversion API using Invidious
- * Uses multiple Invidious instances with automatic fallback
+ * YouTube to Audio Conversion API using Piped
+ * Uses Piped API (YouTube proxy) with automatic fallback
  */
 
-// List of public Invidious instances (ordered by reliability)
-const INVIDIOUS_INSTANCES = [
-  'https://inv.nadeko.net',
-  'https://invidious.nerdvpn.de',
-  'https://invidious.private.coffee',
-  'https://yt.artemislena.eu',
-  'https://invidious.protokolla.fi',
-  'https://iv.datura.network',
-  'https://invidious.perennialte.ch',
-  'https://inv.tux.pizza',
-  'https://invidious.einfachzocken.eu',
-  'https://inv.citw.lgbt',
+// List of Piped API instances (ordered by reliability)
+const PIPED_INSTANCES = [
+  'https://api.piped.private.coffee',
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.adminforge.de',
+  'https://api.piped.yt',
+  'https://pipedapi.in.projectsegfau.lt',
+  'https://api-piped.mha.fi',
+  'https://pipedapi.syncpundit.io',
 ];
 
 // Helper to extract video ID from various YouTube URL formats
@@ -38,22 +35,19 @@ function formatDuration(seconds) {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-// Fetch video info from a single Invidious instance
+// Fetch video info from a single Piped instance
 async function fetchFromInstance(instance, videoId) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+  const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
   try {
-    const response = await fetch(
-      `${instance}/api/v1/videos/${videoId}?fields=videoId,title,author,lengthSeconds,videoThumbnails,adaptiveFormats`,
-      {
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'MusicPlayerApp/1.0',
-        },
-      }
-    );
+    const response = await fetch(`${instance}/streams/${videoId}`, {
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'MusicPlayerApp/1.0',
+      },
+    });
 
     clearTimeout(timeout);
 
@@ -62,6 +56,12 @@ async function fetchFromInstance(instance, videoId) {
     }
 
     const data = await response.json();
+
+    // Check if we got valid data
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
     return { success: true, data, instance };
   } catch (error) {
     clearTimeout(timeout);
@@ -73,8 +73,8 @@ async function fetchFromInstance(instance, videoId) {
 async function getVideoInfo(videoId) {
   const errors = [];
 
-  for (const instance of INVIDIOUS_INSTANCES) {
-    console.log(`Trying instance: ${instance}`);
+  for (const instance of PIPED_INSTANCES) {
+    console.log(`Trying Piped instance: ${instance}`);
     const result = await fetchFromInstance(instance, videoId);
 
     if (result.success) {
@@ -89,7 +89,7 @@ async function getVideoInfo(videoId) {
   // All instances failed
   return {
     success: false,
-    error: 'All Invidious instances failed',
+    error: 'All Piped instances failed',
     details: errors,
   };
 }
@@ -138,7 +138,7 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Get video info from Invidious
+    // Get video info from Piped
     const result = await getVideoInfo(videoId);
 
     if (!result.success) {
@@ -152,26 +152,22 @@ module.exports = async function handler(req, res) {
     const videoData = result.data;
     const usedInstance = result.instance;
 
-    // Find best audio format (prefer opus/webm, then m4a)
-    const audioFormats = (videoData.adaptiveFormats || [])
-      .filter((f) => f.type && f.type.includes('audio'))
+    // Find best audio format from audioStreams
+    const audioStreams = (videoData.audioStreams || [])
+      .filter((s) => s.url) // Must have a URL
       .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
-    if (audioFormats.length === 0) {
+    if (audioStreams.length === 0) {
       return res.status(404).json({
         success: false,
         error: 'No audio formats available for this video',
       });
     }
 
-    const bestAudio = audioFormats[0];
+    const bestAudio = audioStreams[0];
 
-    // Get best thumbnail
-    const thumbnails = videoData.videoThumbnails || [];
-    const thumbnail =
-      thumbnails.find((t) => t.quality === 'maxres')?.url ||
-      thumbnails.find((t) => t.quality === 'high')?.url ||
-      thumbnails[0]?.url ||
+    // Get thumbnail
+    const thumbnail = videoData.thumbnailUrl ||
       `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 
     // Return video info and audio URL
@@ -180,18 +176,18 @@ module.exports = async function handler(req, res) {
       data: {
         videoId: videoId,
         title: videoData.title,
-        author: videoData.author || 'Unknown Artist',
+        author: videoData.uploader || 'Unknown Artist',
         thumbnail: thumbnail,
-        duration: videoData.lengthSeconds || 0,
-        durationFormatted: formatDuration(videoData.lengthSeconds || 0),
+        duration: videoData.duration || 0,
+        durationFormatted: formatDuration(videoData.duration || 0),
         audioUrl: bestAudio.url,
         audioFormat: {
-          mimeType: bestAudio.type,
+          mimeType: bestAudio.mimeType,
           bitrate: bestAudio.bitrate,
-          contentLength: bestAudio.clen,
+          quality: bestAudio.quality,
         },
         _meta: {
-          source: 'invidious',
+          source: 'piped',
           instance: usedInstance,
         },
       },
