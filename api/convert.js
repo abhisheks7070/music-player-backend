@@ -117,11 +117,12 @@ module.exports = async function handler(req, res) {
     const options = {
       agent: agent || undefined,
       playerClients: ['ANDROID', 'IOS', 'WEB_CREATOR'], // Diverse clients help bypass
+      poToken: process.env.YOUTUBE_PO_TOKEN || undefined, // Directly in options
       requestOptions: {
         headers: {
           'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'accept-language': 'en-US,en;q=0.9',
-          'x-youtube-identity-token': poToken || '', // Try to use PoToken as a header too
+          'x-goog-visitor-id': process.env.YOUTUBE_VISITOR_DATA || '', // Another common header
         },
       },
     };
