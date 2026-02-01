@@ -1,40 +1,21 @@
-const ytdl = require('@distube/ytdl-core');
-
-// Helper to create a ytdl agent with cookies and PoToken
-const getAgent = () => {
-  const cookieString = process.env.YOUTUBE_COOKIE;
-  const poToken = process.env.YOUTUBE_PO_TOKEN;
-  const visitorData = process.env.YOUTUBE_VISITOR_DATA;
-
-  try {
-    let cookies = [];
-    if (cookieString && (cookieString.trim().startsWith('[') || cookieString.trim().startsWith('{'))) {
-      cookies = JSON.parse(cookieString);
-      if (!Array.isArray(cookies)) cookies = [cookies];
-    } else if (cookieString) {
-      // Parser for raw "name=value; name2=value2"
-      cookies = cookieString.split(';').map(pair => {
-        const [name, ...value] = pair.split('=');
-        if (name && value) {
-          return { name: name.trim(), value: value.join('=').trim(), domain: '.youtube.com' };
-        }
-        return null;
-      }).filter(Boolean);
-    }
-
-    // Create agent with cookies and optionally visitorData
-    return cookies.length > 0 ? ytdl.createAgent(cookies, {
-      visitorData: visitorData || undefined
-    }) : null;
-  } catch (e) {
-    console.error('Failed to create agent:', e);
-    return null;
-  }
-};
-
 /**
- * YouTube to Audio Conversion API
+ * YouTube to Audio Conversion API using Invidious
+ * Uses multiple Invidious instances with automatic fallback
  */
+
+// List of public Invidious instances (ordered by reliability)
+const INVIDIOUS_INSTANCES = [
+  'https://inv.nadeko.net',
+  'https://invidious.nerdvpn.de',
+  'https://invidious.private.coffee',
+  'https://yt.artemislena.eu',
+  'https://invidious.protokolla.fi',
+  'https://iv.datura.network',
+  'https://invidious.perennialte.ch',
+  'https://inv.tux.pizza',
+  'https://invidious.einfachzocken.eu',
+  'https://inv.citw.lgbt',
+];
 
 // Helper to extract video ID from various YouTube URL formats
 function extractVideoId(url) {
@@ -55,6 +36,62 @@ function formatDuration(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Fetch video info from a single Invidious instance
+async function fetchFromInstance(instance, videoId) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+  try {
+    const response = await fetch(
+      `${instance}/api/v1/videos/${videoId}?fields=videoId,title,author,lengthSeconds,videoThumbnails,adaptiveFormats`,
+      {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'MusicPlayerApp/1.0',
+        },
+      }
+    );
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return { success: true, data, instance };
+  } catch (error) {
+    clearTimeout(timeout);
+    return { success: false, error: error.message, instance };
+  }
+}
+
+// Try multiple instances with fallback
+async function getVideoInfo(videoId) {
+  const errors = [];
+
+  for (const instance of INVIDIOUS_INSTANCES) {
+    console.log(`Trying instance: ${instance}`);
+    const result = await fetchFromInstance(instance, videoId);
+
+    if (result.success) {
+      console.log(`Success with instance: ${instance}`);
+      return result;
+    }
+
+    errors.push({ instance, error: result.error });
+    console.log(`Failed with ${instance}: ${result.error}`);
+  }
+
+  // All instances failed
+  return {
+    success: false,
+    error: 'All Invidious instances failed',
+    details: errors,
+  };
 }
 
 // Main handler
@@ -81,7 +118,7 @@ module.exports = async function handler(req, res) {
     } else {
       return res.status(405).json({
         success: false,
-        error: 'Method not allowed. Use GET or POST.'
+        error: 'Method not allowed. Use GET or POST.',
       });
     }
 
@@ -89,7 +126,7 @@ module.exports = async function handler(req, res) {
     if (!videoUrl) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required parameter: url'
+        error: 'Missing required parameter: url',
       });
     }
 
@@ -97,56 +134,44 @@ module.exports = async function handler(req, res) {
     if (!videoId) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid YouTube URL format'
+        error: 'Invalid YouTube URL format',
       });
     }
 
-    // Validate with ytdl
-    const fullUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    if (!ytdl.validateURL(fullUrl)) {
-      return res.status(400).json({
+    // Get video info from Invidious
+    const result = await getVideoInfo(videoId);
+
+    if (!result.success) {
+      return res.status(503).json({
         success: false,
-        error: 'Invalid YouTube video URL'
+        error: 'Unable to fetch video info. Please try again later.',
+        details: process.env.NODE_ENV === 'development' ? result.details : undefined,
       });
     }
 
-    // Get video info with agent and PoToken support
-    const agent = getAgent();
-    const poToken = process.env.YOUTUBE_PO_TOKEN;
+    const videoData = result.data;
+    const usedInstance = result.instance;
 
-    const options = {
-      agent: agent || undefined,
-      playerClients: ['ANDROID', 'IOS', 'WEB_CREATOR'], // Diverse clients help bypass
-      poToken: process.env.YOUTUBE_PO_TOKEN || undefined, // Directly in options
-      requestOptions: {
-        headers: {
-          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'accept-language': 'en-US,en;q=0.9',
-          'x-goog-visitor-id': process.env.YOUTUBE_VISITOR_DATA || '', // Another common header
-        },
-      },
-    };
-
-    const info = await ytdl.getInfo(fullUrl, options);
-    const videoDetails = info.videoDetails;
-
-    // Get audio-only formats, sorted by quality
-    const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+    // Find best audio format (prefer opus/webm, then m4a)
+    const audioFormats = (videoData.adaptiveFormats || [])
+      .filter((f) => f.type && f.type.includes('audio'))
+      .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
     if (audioFormats.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'No audio formats available for this video'
+        error: 'No audio formats available for this video',
       });
     }
 
-    // Sort by bitrate (highest first) and get the best one
-    audioFormats.sort((a, b) => (b.audioBitrate || 0) - (a.audioBitrate || 0));
     const bestAudio = audioFormats[0];
 
-    // Get thumbnail (prefer high quality)
-    const thumbnails = videoDetails.thumbnails || [];
-    const thumbnail = thumbnails[thumbnails.length - 1]?.url ||
+    // Get best thumbnail
+    const thumbnails = videoData.videoThumbnails || [];
+    const thumbnail =
+      thumbnails.find((t) => t.quality === 'maxres')?.url ||
+      thumbnails.find((t) => t.quality === 'high')?.url ||
+      thumbnails[0]?.url ||
       `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 
     // Return video info and audio URL
@@ -154,42 +179,30 @@ module.exports = async function handler(req, res) {
       success: true,
       data: {
         videoId: videoId,
-        title: videoDetails.title,
-        author: videoDetails.author?.name || 'Unknown Artist',
+        title: videoData.title,
+        author: videoData.author || 'Unknown Artist',
         thumbnail: thumbnail,
-        duration: parseInt(videoDetails.lengthSeconds) || 0,
-        durationFormatted: formatDuration(parseInt(videoDetails.lengthSeconds) || 0),
+        duration: videoData.lengthSeconds || 0,
+        durationFormatted: formatDuration(videoData.lengthSeconds || 0),
         audioUrl: bestAudio.url,
         audioFormat: {
-          mimeType: bestAudio.mimeType,
-          bitrate: bestAudio.audioBitrate,
-          contentLength: bestAudio.contentLength
-        }
-      }
+          mimeType: bestAudio.type,
+          bitrate: bestAudio.bitrate,
+          contentLength: bestAudio.clen,
+        },
+        _meta: {
+          source: 'invidious',
+          instance: usedInstance,
+        },
+      },
     });
-
   } catch (error) {
     console.error('Conversion error:', error);
-
-    // Handle specific ytdl errors
-    if (error.message?.includes('Video unavailable')) {
-      return res.status(404).json({
-        success: false,
-        error: 'Video is unavailable or private'
-      });
-    }
-
-    if (error.message?.includes('Sign in to confirm')) {
-      return res.status(403).json({
-        success: false,
-        error: 'This video requires age verification or is being blocked by bot detection.'
-      });
-    }
 
     return res.status(500).json({
       success: false,
       error: 'Failed to process video. Please try again.',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
