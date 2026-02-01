@@ -1,23 +1,38 @@
 const ytdl = require('@distube/ytdl-core');
 
-// Helper to get cookies from environment variable
-const getCookies = () => {
-  let cookieString = process.env.YOUTUBE_COOKIE;
+// Helper to create a ytdl agent with cookies
+const getAgent = () => {
+  const cookieString = process.env.YOUTUBE_COOKIE;
   if (!cookieString) return null;
 
   try {
-    // If it's a JSON array (like from some extensions), convert it to a string
+    // Try to parse as JSON first (modern format)
     if (cookieString.trim().startsWith('[') || cookieString.trim().startsWith('{')) {
       const cookies = JSON.parse(cookieString);
-      if (Array.isArray(cookies)) {
-        return cookies.map(c => `${c.name}=${c.value}`).join('; ');
-      }
+      return ytdl.createAgent(Array.isArray(cookies) ? cookies : [cookies]);
     }
   } catch (e) {
-    console.warn('YOUTUBE_COOKIE is not valid JSON, using as raw string');
+    console.warn('YOUTUBE_COOKIE is not valid JSON, attempting to use as legacy cookie string');
   }
 
-  return cookieString;
+  // Fallback: If it's a raw string, we try to create an agent with it
+  // Note: createAgent usually expects an array of objects, but some versions 
+  // might handle strings or we may need to manually parse them.
+  try {
+    // Simple parser for "name=value; name2=value2"
+    const cookieArray = cookieString.split(';').map(pair => {
+      const [name, ...value] = pair.split('=');
+      if (name && value) {
+        return { name: name.trim(), value: value.join('=').trim(), domain: '.youtube.com' };
+      }
+      return null;
+    }).filter(Boolean);
+
+    return ytdl.createAgent(cookieArray);
+  } catch (e) {
+    console.error('Failed to create agent from cookie string:', e);
+    return null;
+  }
 };
 
 /**
@@ -102,11 +117,12 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Get video info with optional cookies and a realistic User-Agent
+    // Get video info with a modern agent and a realistic User-Agent
+    const agent = getAgent();
     const options = {
+      agent: agent || undefined,
       requestOptions: {
         headers: {
-          cookie: getCookies() || '',
           'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'accept-language': 'en-US,en;q=0.9',
         },
