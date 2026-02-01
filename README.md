@@ -34,6 +34,35 @@ If you want to test the API on your own computer:
 
 ---
 
+## 🍪 Bypassing Age Restrictions
+
+If you see "Age Verification Required," you need to provide your YouTube session cookies.
+
+### 1. Extract Cookies from Browser
+1. Install a browser extension like **"EditThisCookie"** or **"Get Cookies.txt"**.
+2. Log in to your YouTube account.
+3. Open the extension and copy the cookies for `youtube.com`.
+4. The backend expects a **raw cookie string** (e.g., `VISITOR_INFO1_LIVE=xxx; SID=yyy; ...`).
+
+### 2. Set for Local Development
+1. Create a `.env` file in the `music-player-backend` folder.
+2. Add your cookie string:
+   ```env
+   YOUTUBE_COOKIE="your_full_cookie_string_here"
+   ```
+3. Restart the server with `node server.js`.
+
+### 3. Set for Vercel Production
+1. In the backend folder, run:
+   ```bash
+   npx vercel env add YOUTUBE_COOKIE
+   ```
+2. Paste your cookie string when prompted.
+3. Select `Production`, `Preview`, and `Development`.
+4. Redeploy: `npx vercel deploy --prod`.
+
+---
+
 ## ☁️ How to Deploy to Vercel
 
 To host this backend for free so your mobile app can access it from anywhere:
@@ -82,7 +111,29 @@ To host this backend for free so your mobile app can access it from anywhere:
 
 ---
 
-## ⚠️ Known Issues (Age Verification)
-YouTube sometimes blocks "serverless" IP addresses (like Vercel). If you see an "age verification" error:
-1. Run the backend **locally** using `node server.js`.
-2. Update the mobile app's `API_BASE_URL` in `src/utils/constants.ts` to your computer's IP address.
+## 🍪 Bypassing Age Restrictions
+
+If you see "Age Verification Required," you need to provide your YouTube session cookies.
+
+### 1. Extract Cookies from Browser
+1. Install a browser extension like **"EditThisCookie"** or **"Get Cookies.txt"**.
+2. Log in to your YouTube account.
+3. Open the extension and copy the cookies for `youtube.com`.
+4. The backend expects a **raw cookie string** (e.g., `VISITOR_INFO1_LIVE=xxx; SID=yyy; ...`).
+
+### 2. Set for Local Development
+1. Create a `.env` file in the `music-player-backend` folder.
+2. Add your cookie string:
+   ```env
+   YOUTUBE_COOKIE="your_full_cookie_string_here"
+   ```
+3. Restart the server with `node server.js`.
+
+### 3. Set for Vercel Production
+1. In the backend folder, run:
+   ```bash
+   npx vercel env add YOUTUBE_COOKIE
+   ```
+2. Paste your cookie string when prompted.
+3. Select `Production`, `Preview`, and `Development`.
+4. Redeploy: `npx vercel deploy --prod`.

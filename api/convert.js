@@ -1,5 +1,10 @@
 const ytdl = require('@distube/ytdl-core');
 
+// Helper to get cookies from environment variable
+const getCookies = () => {
+  return process.env.YOUTUBE_COOKIE || null;
+};
+
 /**
  * YouTube to Audio Conversion API
  * 
@@ -14,7 +19,7 @@ function extractVideoId(url) {
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([^&\n?#]+)/,
     /^([a-zA-Z0-9_-]{11})$/ // Direct video ID
   ];
-  
+
   for (const pattern of patterns) {
     const match = url.match(pattern);
     if (match) return match[1];
@@ -82,13 +87,19 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Get video info
-    const info = await ytdl.getInfo(fullUrl);
+    // Get video info with optional cookies
+    const info = await ytdl.getInfo(fullUrl, {
+      requestOptions: {
+        headers: {
+          cookie: getCookies() || '',
+        },
+      },
+    });
     const videoDetails = info.videoDetails;
 
     // Get audio-only formats, sorted by quality
     const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-    
+
     if (audioFormats.length === 0) {
       return res.status(404).json({
         success: false,
@@ -102,8 +113,8 @@ module.exports = async function handler(req, res) {
 
     // Get thumbnail (prefer high quality)
     const thumbnails = videoDetails.thumbnails || [];
-    const thumbnail = thumbnails[thumbnails.length - 1]?.url || 
-                      `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+    const thumbnail = thumbnails[thumbnails.length - 1]?.url ||
+      `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 
     // Return video info and audio URL
     return res.status(200).json({
