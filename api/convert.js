@@ -3,6 +3,8 @@ const ytdl = require('@distube/ytdl-core');
 // Helper to create a ytdl agent with cookies and PoToken
 const getAgent = () => {
   const cookieString = process.env.YOUTUBE_COOKIE;
+  const poToken = process.env.YOUTUBE_PO_TOKEN;
+  const visitorData = process.env.YOUTUBE_VISITOR_DATA;
 
   try {
     let cookies = [];
@@ -20,8 +22,10 @@ const getAgent = () => {
       }).filter(Boolean);
     }
 
-    // Create agent with cookies if available
-    return cookies.length > 0 ? ytdl.createAgent(cookies) : null;
+    // Create agent with cookies and optionally visitorData
+    return cookies.length > 0 ? ytdl.createAgent(cookies, {
+      visitorData: visitorData || undefined
+    }) : null;
   } catch (e) {
     console.error('Failed to create agent:', e);
     return null;
