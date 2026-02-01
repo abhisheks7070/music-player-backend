@@ -2,7 +2,22 @@ const ytdl = require('@distube/ytdl-core');
 
 // Helper to get cookies from environment variable
 const getCookies = () => {
-  return process.env.YOUTUBE_COOKIE || null;
+  let cookieString = process.env.YOUTUBE_COOKIE;
+  if (!cookieString) return null;
+
+  try {
+    // If it's a JSON array (like from some extensions), convert it to a string
+    if (cookieString.trim().startsWith('[') || cookieString.trim().startsWith('{')) {
+      const cookies = JSON.parse(cookieString);
+      if (Array.isArray(cookies)) {
+        return cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      }
+    }
+  } catch (e) {
+    console.warn('YOUTUBE_COOKIE is not valid JSON, using as raw string');
+  }
+
+  return cookieString;
 };
 
 /**
@@ -87,14 +102,18 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Get video info with optional cookies
-    const info = await ytdl.getInfo(fullUrl, {
+    // Get video info with optional cookies and a realistic User-Agent
+    const options = {
       requestOptions: {
         headers: {
           cookie: getCookies() || '',
+          'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'accept-language': 'en-US,en;q=0.9',
         },
       },
-    });
+    };
+
+    const info = await ytdl.getInfo(fullUrl, options);
     const videoDetails = info.videoDetails;
 
     // Get audio-only formats, sorted by quality
